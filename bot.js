@@ -1,9 +1,23 @@
 const https = require('https');
 
 const TELEGRAM_TOKEN = '8687631425:AAGl8C4fpO1M-8niq7gaiO-WbqauCJVqHH4';
-const CLAUDE_API_KEY = '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';
+const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY;
 const SUPABASE_URL = 'https://rgmxncurrisbukxistls.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_6-n7S970NW3zQGrDzjVUpg_UqKqeZt7';
+
+// Users
+const ADMIN_ID = 7923325674;
+const MANAGER_IDS = [7337655369, 6131587426]; // Simmy, Treasure
+const ALL_ALLOWED = [ADMIN_ID, ...MANAGER_IDS];
+const PASSWORD = '123shloma';
+
+// Store authenticated users and their roles
+const authenticated = new Set();
+const awaitingPassword = new Set();
+
+function isAdmin(chatId) { return chatId === ADMIN_ID; }
+function isManager(chatId) { return MANAGER_IDS.includes(chatId); }
+function isAllowed(chatId) { return ALL_ALLOWED.includes(chatId); }
 
 // Simple HTTP request helper
 function request(options, body) {
@@ -80,23 +94,15 @@ Deal stages: ${['lead','qualify','meeting','contract','payment'].map(s => `${s}:
   return response.content?.[0]?.text || 'Sorry, I could not process your request.';
 }
 
-// Download voice message and transcribe
-async function transcribeVoice(fileId) {
-  // Get file path
-  const fileInfo = await request({
-    hostname: 'api.telegram.org',
-    path: `/bot${TELEGRAM_TOKEN}/getFile?file_id=${fileId}`,
-    method: 'GET'
-  });
+// Send new lead notification to managers
+async function notifyManagersNewLead(lead) {
+  const text = `🆕 <b>New Lead!</b>\n\n👤 <b>Name:</b> ${lead.name || '—'}\n📞 <b>Phone:</b> ${lead.phone || '—'}\n📧 <b>Email:</b> ${lead.email || '—'}\n🏢 <b>Company:</b> ${lead.company || '—'}\n📍 <b>Source:</b> ${lead.source || '—'}\n👔 <b>Assigned to:</b> ${lead.manager || 'Unassigned'}`;
   
-  const filePath = fileInfo.result?.file_path;
-  if (!filePath) return null;
-
-  // Download file
-  const fileUrl = `https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${filePath}`;
-  
-  // Use Claude to acknowledge voice (full transcription requires external service)
-  return `[Voice message received - file: ${filePath}]`;
+  for (const managerId of MANAGER_IDS) {
+    if (authenticated.has(managerId)) {
+      await sendMessage(managerId, text).catch(console.error);
+    }
+  }
 }
 
 // Process updates
@@ -106,27 +112,62 @@ async function processUpdate(update) {
 
   const chatId = message.chat.id;
   const text = message.text;
-  const voice = message.voice;
 
   try {
-    let userMessage = text;
-
-    if (voice) {
-      await sendMessage(chatId, '🎤 Получил голосовое сообщение, обрабатываю...');
-      // For now, ask user to type
-      await sendMessage(chatId, '⚠️ Голосовые сообщения пока в разработке. Пожалуйста, напишите текстом.');
+    // Block unknown users
+    if (!isAllowed(chatId)) {
+      await sendMessage(chatId, '⛔️ У вас нет доступа к этому боту.');
       return;
     }
 
-    if (!userMessage) return;
-
-    // Quick commands
-    if (userMessage === '/start') {
-      await sendMessage(chatId, `👋 Привет! Я ваш CRM-ассистент.\n\nМогу рассказать:\n• Сколько лидов и сделок\n• Что делают менеджеры\n• Какие задачи просрочены\n• И многое другое!\n\nПросто спросите меня на русском или английском.`);
+    // Handle /start
+    if (text === '/start') {
+      if (authenticated.has(chatId)) {
+        if (isAdmin(chatId)) {
+          await sendMessage(chatId, `👋 Привет, Админ!\n\nМогу рассказать:\n• Сколько лидов и сделок\n• Что делают менеджеры\n• Какие задачи просрочены\n• И многое другое!\n\nПросто спросите меня.`);
+        } else {
+          await sendMessage(chatId, `👋 Привет!\n\nВы будете получать уведомления о новых лидах автоматически.`);
+        }
+        return;
+      }
+      awaitingPassword.add(chatId);
+      await sendMessage(chatId, '🔐 Введите пароль для доступа:');
       return;
     }
 
-    if (userMessage === '/stats') {
+    // Handle password input
+    if (awaitingPassword.has(chatId)) {
+      if (text === PASSWORD) {
+        awaitingPassword.delete(chatId);
+        authenticated.add(chatId);
+        if (isAdmin(chatId)) {
+          await sendMessage(chatId, `✅ Доступ разрешён!\n\n👑 Вы вошли как <b>Администратор</b>.\n\nМожете спрашивать всё что угодно о CRM!`);
+        } else {
+          await sendMessage(chatId, `✅ Доступ разрешён!\n\n👔 Вы вошли как <b>Менеджер</b>.\n\nВы будете получать уведомления о новых лидах.`);
+        }
+      } else {
+        await sendMessage(chatId, '❌ Неверный пароль. Попробуйте ещё раз:');
+      }
+      return;
+    }
+
+    // Block if not authenticated
+    if (!authenticated.has(chatId)) {
+      awaitingPassword.add(chatId);
+      await sendMessage(chatId, '🔐 Введите пароль для доступа:');
+      return;
+    }
+
+    // Managers only get notifications — no chat
+    if (isManager(chatId) && !isAdmin(chatId)) {
+      await sendMessage(chatId, 'ℹ️ Вы будете получать уведомления о новых лидах автоматически.');
+      return;
+    }
+
+    // Admin only from here
+    if (!text) return;
+
+    if (text === '/stats') {
       const crm = await getCRMData();
       const active = crm.deals.filter(d => !d.closed);
       const sum = active.reduce((s, d) => s + Number(d.amount || 0), 0);
@@ -144,7 +185,7 @@ async function processUpdate(update) {
 
     // Get CRM data and ask Claude
     const crm = await getCRMData();
-    const answer = await askClaude(userMessage, crm);
+    const answer = await askClaude(text, crm);
     await sendMessage(chatId, answer);
 
   } catch (err) {
@@ -177,3 +218,6 @@ async function poll() {
 
 console.log('🤖 CRM Bot starting...');
 poll();
+
+// Export notify function for external use
+module.exports = { notifyManagersNewLead };
