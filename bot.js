@@ -43,7 +43,7 @@ async function sendMessage(chatId, text) {
     path: `/bot${TELEGRAM_TOKEN}/sendMessage`,
     method: 'POST',
     headers: { 'Content-Type': 'application/json' }
-  }, { chat_id: chatId, text, parse_mode: 'HTML' });
+  }, { chat_id: chatId, text, });
 }
 
 // Get CRM stats from Supabase
