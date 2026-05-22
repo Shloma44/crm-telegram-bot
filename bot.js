@@ -7,6 +7,7 @@ const SUPABASE_KEY = 'sb_publishable_6-n7S970NW3zQGrDzjVUpg_UqKqeZt7';
 
 // Users
 const ADMIN_ID = 7923325674;
+const ADMIN_IDS = [7923325674, 6663069441];;
 const MANAGER_IDS = [7337655369, 6131587426]; // Simmy, Treasure
 const ALL_ALLOWED = [ADMIN_ID, ...MANAGER_IDS];
 const PASSWORD = '123shloma';
@@ -15,7 +16,7 @@ const PASSWORD = '123shloma';
 const authenticated = new Set();
 const awaitingPassword = new Set();
 
-function isAdmin(chatId) { return chatId === ADMIN_ID; }
+function isAdmin(chatId) { return ADMIN_IDS.includes(chatId); }
 function isManager(chatId) { return MANAGER_IDS.includes(chatId); }
 function isAllowed(chatId) { return ALL_ALLOWED.includes(chatId); }
 
