@@ -1,0 +1,12 @@
+{
+  "name": "crm-telegram-bot",
+  "version": "1.0.0",
+  "description": "CRM Telegram Bot with Claude AI",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
